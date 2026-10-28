@@ -1,0 +1,6 @@
+bin/
+obj/
+emby-lib
+*.user
+dist/
+.vs/

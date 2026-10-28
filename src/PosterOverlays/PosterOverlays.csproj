@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Emby 4.10+ runs on .NET 8, so this plugin targets net8.0 and references the
+    server's own assemblies directly (no NuGet). Point EmbyLibDir at a copy of the
+    server's "system" folder, e.g.:
+      docker cp <your-emby-container>:/system ./emby-lib
+    The referenced DLLs are NOT copied to the output; the server supplies them.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>PosterOverlays</AssemblyName>
+    <RootNamespace>PosterOverlays</RootNamespace>
+    <Version>0.4.2</Version>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EmbyLibDir Condition="'$(EmbyLibDir)' == ''">$(MSBuildThisFileDirectory)..\..\emby-lib</EmbyLibDir>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MediaBrowser.Common"><HintPath>$(EmbyLibDir)/MediaBrowser.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MediaBrowser.Controller"><HintPath>$(EmbyLibDir)/MediaBrowser.Controller.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MediaBrowser.Model"><HintPath>$(EmbyLibDir)/MediaBrowser.Model.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emby.Web.GenericEdit"><HintPath>$(EmbyLibDir)/Emby.Web.GenericEdit.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emby.Media.Model"><HintPath>$(EmbyLibDir)/Emby.Media.Model.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SkiaSharp"><HintPath>$(EmbyLibDir)/SkiaSharp.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\OverlayFont.ttf" LogicalName="PosterOverlays.OverlayFont.ttf" />
+    <EmbeddedResource Include="Resources\ThumbImage.png" LogicalName="PosterOverlays.ThumbImage.png" />
+    <EmbeddedResource Include="Configuration\configPage.html" LogicalName="PosterOverlays.Configuration.configPage.html" />
+    <EmbeddedResource Include="Configuration\configPage.js" LogicalName="PosterOverlays.Configuration.configPage.js" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,240 @@
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow" data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true" data-bindheader="true" data-controller="__plugin/posteroverlaysjs" data-title="Poster Overlays">
+    <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+
+        <style>
+            .po-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 2.5em; align-items: start; }
+            .po-form { min-width: 0; }
+            .po-previewcol { position: sticky; top: 1em; min-width: 0; }
+            @media (max-width: 1100px) { .po-layout { grid-template-columns: minmax(0, 1fr); } .po-previewcol { position: static; order: -1; } }
+            .po-section { margin: 0 0 2.2em; }
+            .po-section h2 { margin: 0 0 .6em; }
+            .po-hint { opacity: .7; font-size: .9em; margin: .3em 0 0; line-height: 1.4; }
+            .po-checks label { display: flex; margin: .15em 0; }
+            .po-range { display: grid; grid-template-columns: 11em minmax(0, 1fr) 3.2em; align-items: center; gap: .8em; margin: .9em 0; }
+            .po-range input[type=range] { width: 100%; accent-color: #52b54b; }
+            .po-range output { text-align: right; font-variant-numeric: tabular-nums; opacity: .85; }
+            .po-statusgrid { display: grid; grid-template-columns: 7em minmax(0, 1fr) 3.4em; gap: .5em .8em; align-items: center; margin: .8em 0; }
+            .po-statusgrid input[type=text] { width: 100%; box-sizing: border-box; }
+            .po-color { width: 3em; height: 2.2em; padding: 0; border: 1px solid rgba(255,255,255,.25); border-radius: 4px; background: none; cursor: pointer; }
+            .po-colorrow { display: flex; align-items: center; gap: .8em; margin: .9em 0; }
+            .po-colorrow span { min-width: 11em; }
+            .po-textinput { background: rgba(255,255,255,.08); color: inherit; border: 1px solid rgba(255,255,255,.18); border-radius: 4px; padding: .5em .6em; font: inherit; }
+            .po-badges { list-style: none; padding: 0; margin: .5em 0; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; }
+            .po-badges li { display: flex; align-items: center; gap: .6em; padding: .35em .6em; border-top: 1px solid rgba(255,255,255,.08); }
+            .po-badges li:first-child { border-top: 0; }
+            .po-badges li .po-badgename { flex: 1; }
+            .po-badges li label { flex: 1; display: flex; }
+            .po-move { min-width: 2.2em; padding: .25em .4em; margin: 0; }
+            .po-previews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9em; }
+            .po-previews figure { margin: 0; }
+            .po-previews .po-frame { position: relative; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; background: rgba(255,255,255,.06); }
+            .po-previews img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .15s; }
+            .po-previews .po-frame.loading img { opacity: .55; }
+            .po-previews figcaption { font-size: .85em; margin-top: .4em; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .po-previews figcaption b { font-weight: 600; opacity: 1; }
+            .po-previewbar { display: flex; flex-wrap: wrap; gap: .8em; align-items: end; margin: 1em 0 0; }
+            .po-previewbar .selectContainer { margin: 0; flex: 1 1 12em; }
+            .po-previewbar button { margin: 0; }
+            .po-status { margin: 1em 0 0; font-size: .9em; opacity: .8; line-height: 1.5; }
+            .po-error { color: #ff7f7f; }
+            .po-actions { display: flex; flex-wrap: wrap; gap: .8em; margin: .8em 0; }
+            .po-actions button { margin: 0; }
+            .po-save { padding: 1em 0 0; }
+            .po-previewsave { margin: 1.2em 0 0; }
+            .po-previewsave button { margin: 0; }
+        </style>
+
+        <div class="po-layout">
+
+            <form class="po-form">
+
+                <div class="po-section">
+                    <h2>Where to draw</h2>
+                    <div class="po-checks">
+                        <label><input type="checkbox" is="emby-checkbox" data-key="EnableMovies" /><span>Movies</span></label>
+                        <label><input type="checkbox" is="emby-checkbox" data-key="EnableSeries" /><span>Series</span></label>
+                        <label><input type="checkbox" is="emby-checkbox" data-key="EnableSeasons" /><span>Seasons</span></label>
+                    </div>
+                    <p class="po-hint">Many clients show season posters in Recently Added and Continue Watching.</p>
+                </div>
+
+                <div class="po-section">
+                    <h2>Series status banner</h2>
+                    <div class="po-checks">
+                        <label><input type="checkbox" is="emby-checkbox" data-key="EnableStatusBanner" /><span>Show status banner</span></label>
+                        <label><input type="checkbox" is="emby-checkbox" data-key="ShowUpcoming" /><span>Show Upcoming for series that haven't premiered</span></label>
+                    </div>
+
+                    <div class="selectContainer">
+                        <select is="emby-select" data-key="BannerPosition" label="Position">
+                            <option value="Bottom">Bottom</option>
+                            <option value="Top">Top</option>
+                        </select>
+                    </div>
+
+                    <div class="po-range">
+                        <span>Banner height</span>
+                        <input type="range" min="4" max="20" step="1" data-key="BannerHeightPercent" />
+                        <output data-for="BannerHeightPercent"></output>
+                    </div>
+
+                    <div class="po-colorrow">
+                        <span>Banner text color</span>
+                        <input type="color" class="po-color" data-key="BannerTextColor" />
+                    </div>
+
+                    <div class="po-statusgrid">
+                        <span>Airing</span><input type="text" class="po-textinput" data-key="AiringText" /><input type="color" class="po-color" data-key="AiringColor" />
+                        <span>Returning</span><input type="text" class="po-textinput" data-key="ReturningText" /><input type="color" class="po-color" data-key="ReturningColor" />
+                        <span>Ended</span><input type="text" class="po-textinput" data-key="EndedText" /><input type="color" class="po-color" data-key="EndedColor" />
+                        <span>Canceled</span><input type="text" class="po-textinput" data-key="CanceledText" /><input type="color" class="po-color" data-key="CanceledColor" />
+                        <span>Upcoming</span><input type="text" class="po-textinput" data-key="UpcomingText" /><input type="color" class="po-color" data-key="UpcomingColor" />
+                    </div>
+
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" min="1" max="60" data-key="AiringWindowDays" label="Airing window (days)" />
+                        <div class="fieldDescription">A returning series counts as Airing when an episode aired within this many days, or the next one airs within this many days.</div>
+                    </div>
+                </div>
+
+                <div class="po-section">
+                    <h2>Left-side badges</h2>
+                    <p class="po-hint">Tick the badges to show and use the arrows to set their order, top to bottom.</p>
+                    <ul class="po-badges"></ul>
+
+                    <div class="po-checks">
+                        <label><input type="checkbox" is="emby-checkbox" data-key="ShowBasicAudio" /><span>Also badge plain Dolby Digital, DD+ and DTS</span></label>
+                        <label><input type="checkbox" is="emby-checkbox" data-key="ShowRatingsOnSeasons" /><span>Show ratings on season posters (uses the series' ratings)</span></label>
+                        <label><input type="checkbox" is="emby-checkbox" data-key="UseIcons" /><span>Use icons (otherwise text badges)</span></label>
+                    </div>
+
+                    <div class="po-range">
+                        <span>Badge height</span>
+                        <input type="range" min="3" max="12" step="1" data-key="BadgeHeightPercent" />
+                        <output data-for="BadgeHeightPercent"></output>
+                    </div>
+                    <div class="po-range">
+                        <span>Edge margin</span>
+                        <input type="range" min="0" max="10" step="1" data-key="BadgeMarginPercent" />
+                        <output data-for="BadgeMarginPercent"></output>
+                    </div>
+                    <div class="po-range">
+                        <span>Maximum badges</span>
+                        <input type="range" min="1" max="10" step="1" data-key="MaxBadges" />
+                        <output data-for="MaxBadges"></output>
+                    </div>
+                    <div class="po-range">
+                        <span>Background opacity</span>
+                        <input type="range" min="0" max="100" step="5" data-key="BadgeBackgroundOpacity" />
+                        <output data-for="BadgeBackgroundOpacity"></output>
+                    </div>
+                    <div class="po-colorrow">
+                        <span>Badge background</span>
+                        <input type="color" class="po-color" data-key="BadgeBackgroundColor" />
+                    </div>
+
+                    <div class="selectContainer">
+                        <select is="emby-select" data-key="SeriesQualityRule" label="Series quality rule">
+                            <option value="LatestSeason">Latest season</option>
+                            <option value="BestAvailable">Best available</option>
+                            <option value="MostEpisodes">Most episodes</option>
+                        </select>
+                        <div class="fieldDescription">How a series' or season's episodes are summarized into one resolution, HDR and audio badge. Applies on the next data refresh.</div>
+                    </div>
+                </div>
+
+                <div class="po-section">
+                    <h2>Data sources</h2>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="password" autocomplete="off" data-key="TmdbApiKey" label="TMDB API key or read access token" />
+                        <div class="fieldDescription">Used for series status. Without it, Emby's own Continuing/Ended status is used (no Airing or Canceled).</div>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" data-key="ImdbSource" label="IMDb ratings from">
+                            <option value="ImdbDataset">IMDb's daily ratings file (free, no API calls)</option>
+                            <option value="MdbList">MDBList (one call per title)</option>
+                        </select>
+                        <div class="fieldDescription">IMDb publishes every title's rating as one daily download for personal, non-commercial use. It's fetched at most once a day.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="password" autocomplete="off" data-key="MdbListApiKey" label="MDBList API key" />
+                        <div class="fieldDescription">Needed only for Rotten Tomatoes (and for IMDb if you pick MDBList above). If no Rotten Tomatoes badge is ticked, MDBList is never called.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" min="0" max="1000000" data-key="MdbListReserve" label="MDBList calls to keep in reserve each day" />
+                        <div class="fieldDescription">Each run checks how many calls your MDBList account has left today and uses all but this many, so other tools sharing the key (Kometa, Seerr, list syncs) still have room. Titles with no ratings yet are fetched first, newest first; the rest are picked up on later runs.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" min="0" max="1000000" data-key="MaxMdbListCallsPerRun" label="Extra cap per run (0 = none)" />
+                        <div class="fieldDescription">Optional. Limits a single run even when the account has more left, to spread calls across the day's four runs.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" min="1" max="90" data-key="RecentRatingsRefreshDays" label="Refresh ratings for titles from the last year every (days)" />
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" min="1" max="365" data-key="OldRatingsRefreshDays" label="Refresh ratings for older titles every (days)" />
+                    </div>
+                    <div class="po-actions">
+                        <button is="emby-button" type="button" class="raised btnRunRefresh"><span>Refresh overlay data now</span></button>
+                    </div>
+                </div>
+
+                <div class="po-section">
+                    <h2>Icons</h2>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" data-key="IconSourceBaseUrl" label="Icon source base URL" />
+                        <div class="fieldDescription">Defaults to Kometa's overlay images, pinned to one commit. PNG files you put in the icons/custom folder always win.</div>
+                    </div>
+                    <div class="po-actions">
+                        <button is="emby-button" type="button" class="raised btnDownloadIcons"><span>Download icons now</span></button>
+                    </div>
+                </div>
+
+                <div class="po-save">
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+                </div>
+            </form>
+
+            <div class="po-previewcol">
+                <h2>Preview</h2>
+                <div class="po-previews">
+                    <figure data-kind="Movie"><div class="po-frame"><img alt="Movie preview" /></div><figcaption><b>Movie</b> <span class="po-name"></span></figcaption></figure>
+                    <figure data-kind="Series"><div class="po-frame"><img alt="Series preview" /></div><figcaption><b>Series</b> <span class="po-name"></span></figcaption></figure>
+                    <figure data-kind="Season"><div class="po-frame"><img alt="Season preview" /></div><figcaption><b>Season</b> <span class="po-name"></span></figcaption></figure>
+                </div>
+
+                <div class="po-previewbar">
+                    <div class="selectContainer">
+                        <select is="emby-select" class="selPreviewSource" label="Posters">
+                            <option value="library">From my library</option>
+                            <option value="placeholder">Placeholders</option>
+                        </select>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" class="selPreviewData" label="Badges">
+                            <option value="sample">Every badge (sample values)</option>
+                            <option value="real">These titles' real data</option>
+                        </select>
+                    </div>
+                    <div class="selectContainer">
+                        <select is="emby-select" class="selPreviewStatus" label="Sample banner">
+                            <option value="Airing">Airing</option>
+                            <option value="Returning">Returning</option>
+                            <option value="Ended">Ended</option>
+                            <option value="Canceled">Canceled</option>
+                            <option value="Upcoming">Upcoming</option>
+                        </select>
+                    </div>
+                    <button is="emby-button" type="button" class="raised btnShuffle"><span>Shuffle</span></button>
+                </div>
+
+                <p class="po-hint">Previews use your unsaved settings. Nothing changes on the server until you save.</p>
+                <div class="po-previewsave">
+                    <button is="emby-button" type="button" class="raised button-submit block btnSavePreview"><span>Save</span></button>
+                </div>
+                <div class="po-status"></div>
+            </div>
+
+        </div>
+    </div>
+</div>
