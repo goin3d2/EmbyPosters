@@ -28,6 +28,15 @@ Built and tested against **Emby Server 4.11.0.10** (.NET 8). Original artwork is
 
 Series and seasons summarize their episodes using the *Series quality rule*: latest season (default), best available, or most episodes. Versions of the same episode count once (their best). Versions of the same movie (Emby groups them into one title) all get the best quality found across the set, so a movie with 1080p and 4K files shows 4K whichever version Emby picks.
 
+## Look
+
+Everything is set on the settings page, with live previews:
+
+- **Status banner:** top or bottom, height, opacity (see-through or solid), letter spacing, and text and color per status.
+- **Badge style:** separate badges with the value beside the icon, or one column down the left edge with each value under its icon. With a 0% edge margin the column sits flush against the poster edge and the banner.
+- **Text style:** condensed bold or regular-width bold.
+- **Which badges:** resolution, HDR, audio, IMDb, Rotten Tomatoes critics and audience, TMDB, in any order. Resolution, HDR and audio can be turned off for series and seasons while movies keep them.
+
 ## Icons
 
 Icons live in the plugin's data folder. That's normally `plugins/PosterOverlays`, next to Cover Art's `plugins/CoverArt`; the icon task logs the exact path.
