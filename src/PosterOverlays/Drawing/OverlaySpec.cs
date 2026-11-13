@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -55,6 +56,15 @@ namespace PosterOverlays.Drawing
 
         public bool UseIcons { get; set; }
 
+        /// <summary>Banner letter spacing as a fraction of the text size.</summary>
+        public float BannerTracking { get; set; } = 0.12f;
+
+        /// <summary>One panel down the left edge with values under icons, instead of separate pills.</summary>
+        public bool Column { get; set; }
+
+        /// <summary>Regular-width bold font instead of the condensed one.</summary>
+        public bool WideFont { get; set; }
+
         public bool IsEmpty => string.IsNullOrEmpty(this.BannerText) && this.Badges.Count == 0;
 
         /// <summary>Content part of the image cache key: changes whenever what's drawn changes.</summary>
@@ -82,6 +92,9 @@ namespace PosterOverlays.Drawing
                 BadgeBackground = Colors.Parse(o.BadgeBackgroundColor, SKColors.Black).WithAlpha((byte)(255 * o.BadgeBackgroundOpacity / 100)),
                 BannerTextColor = Colors.Parse(o.BannerTextColor, SKColors.White),
                 UseIcons = o.UseIcons,
+                BannerTracking = o.BannerLetterSpacing / 100f,
+                Column = o.BadgeStyle == BadgeStyle.Column,
+                WideFont = o.TextFont == TextFont.Regular,
             };
 
             if (data == null)
@@ -105,32 +118,33 @@ namespace PosterOverlays.Drawing
                 if (!string.IsNullOrWhiteSpace(banner.text))
                 {
                     spec.BannerText = banner.text.Trim();
-                    spec.BannerColor = Colors.Parse(banner.color, SKColors.DimGray);
+                    spec.BannerColor = Colors.Parse(banner.color, SKColors.DimGray).WithAlpha((byte)Math.Round(255 * o.BannerOpacity / 100.0));
                 }
             }
 
             var showRatings = kind != PosterKind.Season || o.ShowRatingsOnSeasons;
+            var showQuality = kind == PosterKind.Movie || o.ShowQualityOnShows;
             foreach (var key in o.GetBadgeOrder())
             {
                 BadgeSpec badge = null;
                 switch (key)
                 {
                     case "resolution":
-                        if (o.ShowResolution && data.Resolution != null)
+                        if (showQuality && o.ShowResolution && data.Resolution != null)
                         {
                             badge = new BadgeSpec { IconKey = data.Resolution, Label = Labels.For(data.Resolution) };
                         }
 
                         break;
                     case "hdr":
-                        if (o.ShowHdr && data.Hdr != null)
+                        if (showQuality && o.ShowHdr && data.Hdr != null)
                         {
                             badge = new BadgeSpec { IconKey = data.Hdr, Label = Labels.For(data.Hdr) };
                         }
 
                         break;
                     case "audio":
-                        if (o.ShowAudio && data.Audio != null && (o.ShowBasicAudio || !MediaInfoClassifier.IsBasicAudio(data.Audio)))
+                        if (showQuality && o.ShowAudio && data.Audio != null && (o.ShowBasicAudio || !MediaInfoClassifier.IsBasicAudio(data.Audio)))
                         {
                             badge = new BadgeSpec { IconKey = data.Audio, Label = Labels.For(data.Audio) };
                         }
@@ -170,7 +184,7 @@ namespace PosterOverlays.Drawing
                             {
                                 IconKey = fresh ? "rt_critic_fresh" : "rt_critic_rotten",
                                 Label = "RT",
-                                Value = data.RtCritic.Value + "%",
+                                Value = data.RtCritic.Value + (spec.Column ? string.Empty : "%"),
                                 LabelColor = fresh ? new SKColor(0xFA, 0x32, 0x0A) : new SKColor(0x8D, 0xB8, 0x3A),
                             };
                         }
@@ -184,7 +198,7 @@ namespace PosterOverlays.Drawing
                             {
                                 IconKey = fresh ? "rt_audience_fresh" : "rt_audience_rotten",
                                 Label = "AUD",
-                                Value = data.RtAudience.Value + "%",
+                                Value = data.RtAudience.Value + (spec.Column ? string.Empty : "%"),
                                 LabelColor = fresh ? new SKColor(0xFA, 0x32, 0x0A) : new SKColor(0x8D, 0xB8, 0x3A),
                             };
                         }

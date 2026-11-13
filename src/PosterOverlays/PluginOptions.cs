@@ -19,6 +19,21 @@ namespace PosterOverlays
         MdbList,
     }
 
+    public enum TextFont
+    {
+        Condensed,
+        Regular,
+    }
+
+    public enum BadgeStyle
+    {
+        /// <summary>A rounded pill per badge, value beside the icon.</summary>
+        Separate,
+
+        /// <summary>One panel down the left edge, each value under its icon.</summary>
+        Column,
+    }
+
     public enum SeriesQualityRule
     {
         LatestSeason,
@@ -52,6 +67,12 @@ namespace PosterOverlays
         public BannerPosition BannerPosition { get; set; } = BannerPosition.Bottom;
 
         public int BannerHeightPercent { get; set; } = 9;
+
+        public int BannerOpacity { get; set; } = 100;
+
+        public int BannerLetterSpacing { get; set; } = 12;
+
+        public TextFont TextFont { get; set; } = TextFont.Condensed;
 
         public int AiringWindowDays { get; set; } = 15;
 
@@ -87,6 +108,11 @@ namespace PosterOverlays
         public bool ShowAudio { get; set; } = true;
 
         public bool ShowBasicAudio { get; set; } = false;
+
+        /// <summary>Resolution, HDR and audio badges on series and season posters (movies always get them).</summary>
+        public bool ShowQualityOnShows { get; set; } = true;
+
+        public BadgeStyle BadgeStyle { get; set; } = BadgeStyle.Separate;
 
         public bool ShowImdb { get; set; } = true;
 
@@ -153,6 +179,8 @@ namespace PosterOverlays
         {
             var d = new PluginOptions();
             this.BannerHeightPercent = Clamp(this.BannerHeightPercent, 4, 20);
+            this.BannerOpacity = Clamp(this.BannerOpacity, 20, 100);
+            this.BannerLetterSpacing = Clamp(this.BannerLetterSpacing, 0, 30);
             this.AiringWindowDays = Clamp(this.AiringWindowDays, 1, 60);
             this.BadgeHeightPercent = Clamp(this.BadgeHeightPercent, 3, 12);
             this.BadgeMarginPercent = Clamp(this.BadgeMarginPercent, 0, 10);
@@ -187,13 +215,13 @@ namespace PosterOverlays
         public object GetStyleSnapshot() => new
         {
             this.EnableMovies, this.EnableSeries, this.EnableSeasons,
-            this.EnableStatusBanner, this.BannerPosition, this.BannerHeightPercent, this.ShowUpcoming, this.BannerTextColor,
+            this.EnableStatusBanner, this.BannerPosition, this.BannerHeightPercent, this.BannerOpacity, this.BannerLetterSpacing, this.ShowUpcoming, this.BannerTextColor,
             this.AiringText, this.AiringColor, this.ReturningText, this.ReturningColor, this.EndedText, this.EndedColor,
             this.CanceledText, this.CanceledColor, this.UpcomingText, this.UpcomingColor,
             this.ShowResolution, this.ShowHdr, this.ShowAudio, this.ShowBasicAudio, this.ShowImdb, this.ShowRtCritic,
             this.ShowRtAudience, this.ShowTmdb, this.ShowRatingsOnSeasons, Order = string.Join(",", this.GetBadgeOrder()),
             this.BadgeHeightPercent, this.BadgeMarginPercent, this.MaxBadges, this.BadgeBackgroundColor, this.BadgeBackgroundOpacity,
-            this.UseIcons,
+            this.UseIcons, this.BadgeStyle, this.ShowQualityOnShows, this.TextFont,
         };
 
         private static int Clamp(int value, int min, int max) => Math.Max(min, Math.Min(max, value));

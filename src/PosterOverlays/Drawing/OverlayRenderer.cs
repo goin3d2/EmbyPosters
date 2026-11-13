@@ -7,9 +7,19 @@ namespace PosterOverlays.Drawing
     /// <summary>Draws a banner and badge stack onto a poster. Pure Skia: no Emby types, safe to call from many threads.</summary>
     public static class OverlayRenderer
     {
-        private static readonly Lazy<SKTypeface> EmbeddedFont = new Lazy<SKTypeface>(() =>
+        private static readonly Lazy<SKTypeface> EmbeddedFont = new Lazy<SKTypeface>(() => LoadFont("PosterOverlays.OverlayFont.ttf"));
+
+        private static readonly Lazy<SKTypeface> EmbeddedWideFont = new Lazy<SKTypeface>(() => LoadFont("PosterOverlays.OverlayFontWide.ttf"));
+
+        public static SKTypeface Font => EmbeddedFont.Value;
+
+        public static SKTypeface WideFont => EmbeddedWideFont.Value;
+
+        private static SKTypeface FontFor(OverlaySpec spec) => spec.WideFont ? WideFont : Font;
+
+        private static SKTypeface LoadFont(string resource)
         {
-            var stream = typeof(OverlayRenderer).Assembly.GetManifestResourceStream("PosterOverlays.OverlayFont.ttf");
+            var stream = typeof(OverlayRenderer).Assembly.GetManifestResourceStream(resource);
             if (stream == null)
             {
                 return SKTypeface.FromFamilyName("sans-serif", SKFontStyle.Bold);
@@ -22,9 +32,7 @@ namespace PosterOverlays.Drawing
                 copy.Position = 0;
                 return SKTypeface.FromStream(copy) ?? SKTypeface.FromFamilyName("sans-serif", SKFontStyle.Bold);
             }
-        });
-
-        public static SKTypeface Font => EmbeddedFont.Value;
+        }
 
         /// <summary>Decode inputFile, draw the overlay, and write outputFile in a format matching its extension.</summary>
         public static void RenderFile(string inputFile, string outputFile, OverlaySpec spec, Func<string, SKImage> icons)
@@ -83,6 +91,14 @@ namespace PosterOverlays.Drawing
             var y = hasBanner && spec.BannerAtTop ? bannerBottom + margin : margin;
             var limit = hasBanner && !spec.BannerAtTop ? bannerTop - margin : height - margin;
             var maxWidth = width * 0.6f;
+
+            if (spec.Column)
+            {
+                var areaTop = hasBanner && spec.BannerAtTop ? bannerBottom : 0;
+                var areaBottom = hasBanner && !spec.BannerAtTop ? bannerTop : height;
+                DrawColumn(canvas, width, margin, y, limit, areaTop, areaBottom, badgeHeight, spec, icons);
+                return;
+            }
             var drawn = 0;
 
             foreach (var badge in spec.Badges)
@@ -105,9 +121,11 @@ namespace PosterOverlays.Drawing
                 canvas.DrawRect(rect, fill);
             }
 
-            // Hairline on the poster-facing edge so the banner reads as a band, not a crop.
-            using (var edge = new SKPaint { Color = SKColors.Black.WithAlpha(70), IsAntialias = true, StrokeWidth = Math.Max(1f, rect.Height * 0.04f) })
+            // Hairline on the poster-facing edge so a solid banner reads as a band, not a crop.
+            // A see-through banner already reads as an overlay, so it gets none.
+            if (spec.BannerColor.Alpha == 255)
             {
+                using var edge = new SKPaint { Color = SKColors.Black.WithAlpha(70), IsAntialias = true, StrokeWidth = Math.Max(1f, rect.Height * 0.04f) };
                 var edgeY = spec.BannerAtTop ? rect.Bottom : rect.Top;
                 canvas.DrawLine(rect.Left, edgeY, rect.Right, edgeY, edge);
             }
@@ -115,14 +133,14 @@ namespace PosterOverlays.Drawing
             var text = spec.BannerText.ToUpperInvariant();
             using var paint = new SKPaint
             {
-                Typeface = Font,
+                Typeface = FontFor(spec),
                 IsAntialias = true,
                 Color = spec.BannerTextColor,
-                TextSize = rect.Height * 0.56f,
+                TextSize = rect.Height * (spec.WideFont ? 0.68f : 0.56f),
             };
 
             // Letter-spaced, shrunk to fit 90% of the width.
-            var tracking = paint.TextSize * 0.12f;
+            var tracking = paint.TextSize * spec.BannerTracking;
             var textWidth = MeasureTracked(paint, text, tracking);
             var available = rect.Width * 0.9f;
             if (textWidth > available)
@@ -147,7 +165,7 @@ namespace PosterOverlays.Drawing
         {
             var pad = h * 0.2f;
             var inner = h - (2 * pad);
-            using var text = new SKPaint { Typeface = Font, IsAntialias = true, Color = SKColors.White, TextSize = h * 0.56f };
+            using var text = new SKPaint { Typeface = FontFor(spec), IsAntialias = true, Color = SKColors.White, TextSize = h * 0.56f };
 
             // Measure contents: [icon or label] [value]
             float iconW = 0, iconH = 0;
@@ -199,6 +217,127 @@ namespace PosterOverlays.Drawing
             {
                 cx += (iconW + labelW) > 0 ? spacing : 0;
                 canvas.DrawText(badge.Value, cx, baseline, text);
+            }
+        }
+
+        /// <summary>
+        /// One panel down the left edge: each badge's icon (or label) with its value centered underneath.
+        /// Edges that sit against the poster edge or the banner are square; the free corners are rounded.
+        /// </summary>
+        private static void DrawColumn(SKCanvas canvas, int width, float margin, float top, float limit, float areaTop, float areaBottom, float unit, OverlaySpec spec, Func<string, SKImage> icons)
+        {
+            var pad = unit * 0.28f;
+            var itemGap = unit * 0.32f;
+            var valueGap = unit * 0.1f;
+            var maxInner = width * 0.2f;
+            using var text = new SKPaint { Typeface = FontFor(spec), IsAntialias = true, Color = SKColors.White, TextSize = unit * 0.62f };
+            var cap = CapHeight(text);
+
+            // Lay out items until the column would run past the available space.
+            var items = new System.Collections.Generic.List<(BadgeSpec Badge, SKImage Icon, float IconW, float IconH, float W, float H)>();
+            var used = 2 * pad;
+            foreach (var badge in spec.Badges)
+            {
+                if (items.Count >= spec.MaxBadges)
+                {
+                    break;
+                }
+
+                var icon = spec.UseIcons ? icons?.Invoke(badge.IconKey) : null;
+                float iconW = 0, iconH = 0, headH, headW;
+                if (icon != null)
+                {
+                    iconH = unit * (badge.Value != null ? 0.78f : 0.62f);
+                    iconW = icon.Width * (iconH / icon.Height);
+                    if (iconW > maxInner)
+                    {
+                        iconH *= maxInner / iconW;
+                        iconW = maxInner;
+                    }
+
+                    headW = iconW;
+                    headH = iconH;
+                }
+                else
+                {
+                    headW = Math.Min(maxInner, text.MeasureText(badge.Label ?? string.Empty));
+                    headH = cap;
+                }
+
+                var valueW = badge.Value != null ? text.MeasureText(badge.Value) : 0;
+                var h = headH + (badge.Value != null ? valueGap + cap : 0);
+                var extra = h + (items.Count > 0 ? itemGap : 0);
+                if (top + used + extra > limit)
+                {
+                    break;
+                }
+
+                used += extra;
+                items.Add((badge, icon, iconW, iconH, Math.Max(headW, valueW), h));
+            }
+
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            var innerW = 0f;
+            foreach (var item in items)
+            {
+                innerW = Math.Max(innerW, item.W);
+            }
+
+            var panel = new SKRect(margin, top, margin + innerW + (2 * pad), top + used);
+            var radius = unit * 0.3f;
+            using (var bg = new SKPaint { Color = spec.BadgeBackground, IsAntialias = true })
+            {
+                // Push edges that touch the poster edge or banner out by the radius, then clip, so they stay square.
+                var draw = panel;
+                if (margin < 0.5f)
+                {
+                    draw.Left -= radius;
+                }
+
+                if (top - areaTop < 0.5f)
+                {
+                    draw.Top -= radius;
+                }
+
+                canvas.Save();
+                canvas.ClipRect(new SKRect(0, areaTop, width, areaBottom));
+                canvas.DrawRoundRect(draw, radius, radius, bg);
+                canvas.Restore();
+            }
+
+            var y = top + pad;
+            var centerX = panel.MidX;
+            foreach (var item in items)
+            {
+                if (item.Icon != null)
+                {
+                    var dest = SKRect.Create(centerX - (item.IconW / 2), y, item.IconW, item.IconH);
+                    using var imagePaint = new SKPaint { IsAntialias = true, FilterQuality = SKFilterQuality.High };
+                    canvas.DrawImage(item.Icon, dest, imagePaint);
+                    y += item.IconH;
+                }
+                else
+                {
+                    var color = text.Color;
+                    text.Color = item.Badge.LabelColor ?? SKColors.White;
+                    var label = item.Badge.Label ?? string.Empty;
+                    canvas.DrawText(label, centerX - (text.MeasureText(label) / 2), y + cap, text);
+                    text.Color = color;
+                    y += cap;
+                }
+
+                if (item.Badge.Value != null)
+                {
+                    y += valueGap;
+                    canvas.DrawText(item.Badge.Value, centerX - (text.MeasureText(item.Badge.Value) / 2), y + cap, text);
+                    y += cap;
+                }
+
+                y += itemGap;
             }
         }
 

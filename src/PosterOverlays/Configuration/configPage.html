@@ -78,6 +78,25 @@
                         <output data-for="BannerHeightPercent"></output>
                     </div>
 
+                    <div class="po-range">
+                        <span>Banner opacity</span>
+                        <input type="range" min="20" max="100" step="5" data-key="BannerOpacity" />
+                        <output data-for="BannerOpacity"></output>
+                    </div>
+
+                    <div class="po-range">
+                        <span>Letter spacing</span>
+                        <input type="range" min="0" max="30" step="1" data-key="BannerLetterSpacing" />
+                        <output data-for="BannerLetterSpacing"></output>
+                    </div>
+
+                    <div class="selectContainer">
+                        <select is="emby-select" data-key="TextFont" label="Text style (banner and badges)">
+                            <option value="Condensed">Condensed bold</option>
+                            <option value="Regular">Regular-width bold</option>
+                        </select>
+                    </div>
+
                     <div class="po-colorrow">
                         <span>Banner text color</span>
                         <input type="color" class="po-color" data-key="BannerTextColor" />
@@ -99,10 +118,18 @@
 
                 <div class="po-section">
                     <h2>Left-side badges</h2>
+                    <div class="selectContainer">
+                        <select is="emby-select" data-key="BadgeStyle" label="Badge style">
+                            <option value="Separate">Separate badges, value beside the icon</option>
+                            <option value="Column">One column, value under the icon</option>
+                        </select>
+                        <div class="fieldDescription">With a 0% edge margin the column sits flush against the poster edge and the banner.</div>
+                    </div>
                     <p class="po-hint">Tick the badges to show and use the arrows to set their order, top to bottom.</p>
                     <ul class="po-badges"></ul>
 
                     <div class="po-checks">
+                        <label><input type="checkbox" is="emby-checkbox" data-key="ShowQualityOnShows" /><span>Show resolution, HDR and audio on series and season posters (movies always get them)</span></label>
                         <label><input type="checkbox" is="emby-checkbox" data-key="ShowBasicAudio" /><span>Also badge plain Dolby Digital, DD+ and DTS</span></label>
                         <label><input type="checkbox" is="emby-checkbox" data-key="ShowRatingsOnSeasons" /><span>Show ratings on season posters (uses the series' ratings)</span></label>
                         <label><input type="checkbox" is="emby-checkbox" data-key="UseIcons" /><span>Use icons (otherwise text badges)</span></label>
