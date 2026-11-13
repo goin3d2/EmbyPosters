@@ -247,7 +247,7 @@ namespace PosterOverlays.Drawing
                 float iconW = 0, iconH = 0, headH, headW;
                 if (icon != null)
                 {
-                    iconH = unit * (badge.Value != null ? 0.78f : 0.62f);
+                    iconH = unit * (badge.Value != null ? 0.58f : 0.62f);
                     iconW = icon.Width * (iconH / icon.Height);
                     if (iconW > maxInner)
                     {

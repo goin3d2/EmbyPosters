@@ -11,7 +11,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>PosterOverlays</AssemblyName>
     <RootNamespace>PosterOverlays</RootNamespace>
-    <Version>0.5.0</Version>
+    <Version>0.5.1</Version>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
