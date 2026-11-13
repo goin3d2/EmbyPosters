@@ -48,6 +48,9 @@ namespace PosterOverlays.Drawing
 
         public float BadgeHeightFraction { get; set; }
 
+        /// <summary>Icon size multiplier relative to the badge text (1 = default).</summary>
+        public float IconScale { get; set; } = 1f;
+
         public float BadgeMarginFraction { get; set; }
 
         public int MaxBadges { get; set; }
@@ -87,6 +90,7 @@ namespace PosterOverlays.Drawing
                 BannerAtTop = o.BannerPosition == BannerPosition.Top,
                 BannerHeightFraction = o.BannerHeightPercent / 100f,
                 BadgeHeightFraction = o.BadgeHeightPercent / 100f,
+                IconScale = o.BadgeIconPercent / 100f,
                 BadgeMarginFraction = o.BadgeMarginPercent / 100f,
                 MaxBadges = o.MaxBadges,
                 BadgeBackground = Colors.Parse(o.BadgeBackgroundColor, SKColors.Black).WithAlpha((byte)(255 * o.BadgeBackgroundOpacity / 100)),

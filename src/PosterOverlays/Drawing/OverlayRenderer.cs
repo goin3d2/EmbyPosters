@@ -103,13 +103,13 @@ namespace PosterOverlays.Drawing
 
             foreach (var badge in spec.Badges)
             {
-                if (drawn >= spec.MaxBadges || y + badgeHeight > limit)
+                if (drawn >= spec.MaxBadges || y + (badgeHeight * Math.Max(1f, spec.IconScale)) > limit)
                 {
                     break;
                 }
 
-                DrawBadge(canvas, margin, y, badgeHeight, maxWidth, badge, spec, spec.UseIcons ? icons?.Invoke(badge.IconKey) : null);
-                y += badgeHeight + gap;
+                var used = DrawBadge(canvas, margin, y, badgeHeight, maxWidth, badge, spec, spec.UseIcons ? icons?.Invoke(badge.IconKey) : null);
+                y += used + gap;
                 drawn++;
             }
         }
@@ -161,7 +161,8 @@ namespace PosterOverlays.Drawing
             }
         }
 
-        private static void DrawBadge(SKCanvas canvas, float x, float y, float h, float maxWidth, BadgeSpec badge, OverlaySpec spec, SKImage icon)
+        /// <returns>The height actually drawn (taller than h when a large icon size needs the room).</returns>
+        private static float DrawBadge(SKCanvas canvas, float x, float y, float h, float maxWidth, BadgeSpec badge, OverlaySpec spec, SKImage icon)
         {
             var pad = h * 0.2f;
             var inner = h - (2 * pad);
@@ -172,7 +173,7 @@ namespace PosterOverlays.Drawing
             if (icon != null)
             {
                 // Icon-only badges (resolution, HDR, audio) get a bit less height so wide logos stay compact.
-                iconH = badge.Value == null ? inner * 0.92f : inner * 1.08f;
+                iconH = (badge.Value == null ? inner * 0.92f : inner * 1.08f) * spec.IconScale;
                 iconW = icon.Width * (iconH / icon.Height);
                 var iconMax = maxWidth - (2 * pad) - (badge.Value != null ? text.MeasureText(badge.Value) + pad : 0);
                 if (iconW > iconMax && iconMax > 0)
@@ -189,7 +190,8 @@ namespace PosterOverlays.Drawing
             var contentW = iconW + labelW + valueW + ((iconW + labelW) > 0 && valueW > 0 ? spacing : 0);
             var badgeW = Math.Min(maxWidth, contentW + (2 * pad));
 
-            var rect = new SKRect(x, y, x + badgeW, y + h);
+            var pillH = Math.Max(h, iconH + pad);
+            var rect = new SKRect(x, y, x + badgeW, y + pillH);
             using (var bg = new SKPaint { Color = spec.BadgeBackground, IsAntialias = true })
             {
                 canvas.DrawRoundRect(rect, h * 0.22f, h * 0.22f, bg);
@@ -218,6 +220,8 @@ namespace PosterOverlays.Drawing
                 cx += (iconW + labelW) > 0 ? spacing : 0;
                 canvas.DrawText(badge.Value, cx, baseline, text);
             }
+
+            return pillH;
         }
 
         /// <summary>
@@ -247,7 +251,7 @@ namespace PosterOverlays.Drawing
                 float iconW = 0, iconH = 0, headH, headW;
                 if (icon != null)
                 {
-                    iconH = unit * (badge.Value != null ? 0.58f : 0.62f);
+                    iconH = unit * (badge.Value != null ? 0.58f : 0.62f) * spec.IconScale;
                     iconW = icon.Width * (iconH / icon.Height);
                     if (iconW > maxInner)
                     {

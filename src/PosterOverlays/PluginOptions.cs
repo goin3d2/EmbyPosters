@@ -128,6 +128,9 @@ namespace PosterOverlays
 
         public int BadgeHeightPercent { get; set; } = 5;
 
+        /// <summary>Icon size relative to the badge text, in percent (100 = default balance).</summary>
+        public int BadgeIconPercent { get; set; } = 100;
+
         public int BadgeMarginPercent { get; set; } = 3;
 
         public int MaxBadges { get; set; } = 6;
@@ -183,6 +186,7 @@ namespace PosterOverlays
             this.BannerLetterSpacing = Clamp(this.BannerLetterSpacing, 0, 30);
             this.AiringWindowDays = Clamp(this.AiringWindowDays, 1, 60);
             this.BadgeHeightPercent = Clamp(this.BadgeHeightPercent, 3, 12);
+            this.BadgeIconPercent = Clamp(this.BadgeIconPercent, 50, 200);
             this.BadgeMarginPercent = Clamp(this.BadgeMarginPercent, 0, 10);
             this.MaxBadges = Clamp(this.MaxBadges, 1, 10);
             this.BadgeBackgroundOpacity = Clamp(this.BadgeBackgroundOpacity, 0, 100);
@@ -220,7 +224,7 @@ namespace PosterOverlays
             this.CanceledText, this.CanceledColor, this.UpcomingText, this.UpcomingColor,
             this.ShowResolution, this.ShowHdr, this.ShowAudio, this.ShowBasicAudio, this.ShowImdb, this.ShowRtCritic,
             this.ShowRtAudience, this.ShowTmdb, this.ShowRatingsOnSeasons, Order = string.Join(",", this.GetBadgeOrder()),
-            this.BadgeHeightPercent, this.BadgeMarginPercent, this.MaxBadges, this.BadgeBackgroundColor, this.BadgeBackgroundOpacity,
+            this.BadgeHeightPercent, this.BadgeIconPercent, this.BadgeMarginPercent, this.MaxBadges, this.BadgeBackgroundColor, this.BadgeBackgroundOpacity,
             this.UseIcons, this.BadgeStyle, this.ShowQualityOnShows, this.TextFont,
         };
 
