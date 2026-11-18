@@ -44,7 +44,7 @@ namespace PosterOverlays.Tasks
         {
             return new[]
             {
-                new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromHours(6).Ticks },
+                new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromHours(24).Ticks },
             };
         }
 
@@ -55,8 +55,9 @@ namespace PosterOverlays.Tasks
             var store = plugin.Store;
             var tmdb = new TmdbClient(options.TmdbApiKey);
             var mdb = new MdbListClient(options.MdbListApiKey);
-            var run = new RunState();
+            var run = new RunState { Store = store };
             var mostCommon = options.SeriesQualityRule == SeriesQualityRule.MostEpisodes;
+            var started = DateTime.UtcNow;
 
             if (!tmdb.IsConfigured)
             {
@@ -73,11 +74,19 @@ namespace PosterOverlays.Tasks
                 run.MdbBudget = await this.GetMdbBudgetAsync(mdb, store, options, cancellationToken).ConfigureAwait(false);
             }
 
-            var movies = options.EnableMovies ? this.Query("Movie") : Array.Empty<BaseItem>();
-            var series = options.EnableSeries || options.EnableSeasons ? this.Query("Series").OfType<Series>().ToArray() : Array.Empty<Series>();
-            var total = Math.Max(1, movies.Length + series.Length);
+            // Only small records are kept for the whole run; Emby's full items are loaded a page at a time.
+            var movieIds = options.EnableMovies ? this.Ids("Movie") : Array.Empty<long>();
+            var seriesIds = options.EnableSeries || options.EnableSeasons ? this.Ids("Series") : Array.Empty<long>();
+            var movies = this.LoadTitles(movieIds, cancellationToken);
+            var series = this.LoadTitles(seriesIds, cancellationToken);
+            var total = Math.Max(1, movies.Count + series.Count);
             var done = 0;
-            var seen = new HashSet<long>();
+
+            // Quality only needs reading again for items Emby has saved since the last complete run (new files,
+            // new media info). A different quality rule or plugin version reads everything again.
+            var rulesKey = Plugin.Instance.Version + "/" + options.SeriesQualityRule;
+            var since = store.Data.QualityRulesKey == rulesKey ? store.Data.QualityCheckedUtc : null;
+            var changed = since.HasValue ? this.ChangedSince(since.Value.AddMinutes(-10)) : null;
 
             if (options.ShowImdb && options.ImdbSource == ImdbRatingSource.ImdbDataset)
             {
@@ -99,43 +108,56 @@ namespace PosterOverlays.Tasks
 
             // Emby keeps each version of a movie (1080p, 4K...) as its own item and shows them as one title.
             // Every version gets the best quality found across the set, so the card shows 4K whichever version Emby picks.
-            foreach (var versions in movies.GroupBy(VersionGroupKey))
+            var toRead = new List<List<Title>>();
+            var pending = 0;
+            foreach (var versions in movies.GroupBy(m => m.VersionKey).Select(g => g.ToList()))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var perVersion = new List<QualityInfo>();
-                foreach (var movie in versions)
+                var cached = versions.Select(v => store.GetItem(v.InternalId)).ToList();
+                var fresh = changed != null
+                    && versions.All(v => !changed.Contains(v.InternalId))
+                    && cached.All(c => c != null && c.Resolution != null);
+                if (fresh)
                 {
-                    try
+                    for (var i = 0; i < versions.Count; i++)
                     {
-                        perVersion.Add(MediaInfoClassifier.Classify(movie.GetMediaStreams(cancellationToken), movie.Path));
+                        this.SetMovie(versions[i], cached[i], store, options);
                     }
-                    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-                    {
-                        this.logger.ErrorException("Could not read media info for movie {0}", ex, movie.Name);
-                    }
+
+                    run.Reused += versions.Count;
+                    done += versions.Count;
+                    progress.Report(40 + (60.0 * done / total));
+                    continue;
                 }
 
-                var quality = MediaInfoClassifier.Summarize(perVersion, mostCommon: false);
-                foreach (var movie in versions)
+                toRead.Add(versions);
+                pending += versions.Count;
+                if (pending >= PageSize)
                 {
-                    var data = new ItemOverlayData { Resolution = quality.Resolution, Hdr = quality.Hdr, Audio = quality.Audio };
-                    ApplyRatings(data, movie, "movie", store, options);
-                    store.SetItem(movie.InternalId, data);
-                    seen.Add(movie.InternalId);
-                    progress.Report(40 + (60.0 * ++done / total));
-                    if (done % 250 == 0)
-                    {
-                        store.Save();
-                    }
+                    done += this.ReadMovies(toRead, store, options, run, cancellationToken);
+                    toRead.Clear();
+                    pending = 0;
+                    progress.Report(40 + (60.0 * done / total));
                 }
+
+                run.SaveIfDue();
             }
 
+            done += this.ReadMovies(toRead, store, options, run, cancellationToken);
+
+            var seasons = options.EnableSeasons ? this.LoadSeasons(cancellationToken) : new Dictionary<long, List<SeasonRef>>();
+            var changedShows = changed == null ? null : this.ShowsWithChanges(changed, cancellationToken);
             foreach (var show in series)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    await this.RefreshSeriesAsync(show, tmdb, mdb, store, run, options, mostCommon, seen, cancellationToken).ConfigureAwait(false);
+                    seasons.TryGetValue(show.InternalId, out var showSeasons);
+                    var reread = changedShows == null
+                        || changedShows.Contains(show.InternalId)
+                        || (options.EnableSeries && store.GetItem(show.InternalId) == null)
+                        || (showSeasons ?? new List<SeasonRef>()).Any(x => store.GetItem(x.InternalId) == null);
+                    await this.RefreshSeriesAsync(show, showSeasons ?? new List<SeasonRef>(), reread, tmdb, store, run, options, mostCommon, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -143,14 +165,22 @@ namespace PosterOverlays.Tasks
                 }
 
                 progress.Report(40 + (60.0 * ++done / total));
-                if (done % 50 == 0)
-                {
-                    store.Save();
-                }
+                run.SaveIfDue();
             }
 
             // Forget items that no longer exist (or whose type was switched off).
-            foreach (var stale in store.Data.Items.Keys.Where(k => !seen.Contains(k)).ToList())
+            var keep = new HashSet<long>(movieIds);
+            if (options.EnableSeries)
+            {
+                keep.UnionWith(seriesIds);
+            }
+
+            foreach (var list in seasons.Values)
+            {
+                keep.UnionWith(list.Select(x => x.InternalId));
+            }
+
+            foreach (var stale in store.Data.Items.Keys.Where(k => !keep.Contains(k)).ToList())
             {
                 store.Data.Items.TryRemove(stale, out _);
             }
@@ -161,16 +191,75 @@ namespace PosterOverlays.Tasks
                 store.Data.MdbListQuota.UsedToday += run.MdbCalls;
             }
 
+            store.Data.QualityCheckedUtc = started;
+            store.Data.QualityRulesKey = rulesKey;
             store.Save();
             this.logger.Info(
-                "Poster overlay data refreshed: {0} movies, {1} series; {2} TMDB calls; MDBList: {3} titles updated in {4} calls, {5} still waiting{6}",
-                movies.Length,
-                series.Length,
+                "Poster overlay data refreshed in {7:0} min: {0} movies, {1} series ({8} items re-read, {9} unchanged); {2} TMDB calls; MDBList: {3} titles updated in {4} calls, {5} still waiting{6}",
+                movies.Count,
+                series.Count,
                 run.TmdbCalls,
                 run.MdbFetched,
                 run.MdbCalls,
                 run.MdbSkipped,
-                run.MdbStopped ? " (stopped early; the rest continue next run)" : string.Empty);
+                run.MdbStopped ? " (stopped early; the rest continue next run)" : string.Empty,
+                (DateTime.UtcNow - started).TotalMinutes,
+                run.Reread,
+                run.Reused);
+        }
+
+        private const int PageSize = 500;
+
+        /// <summary>Reads media info for the movie version sets waiting, a page of items at a time. Returns how many items.</summary>
+        private int ReadMovies(List<List<Title>> groups, OverlayStore store, PluginOptions options, RunState run, CancellationToken ct)
+        {
+            var count = 0;
+            if (groups.Count == 0)
+            {
+                return 0;
+            }
+
+            var items = this.LoadItems(groups.SelectMany(g => g).Select(t => t.InternalId).ToArray()).ToDictionary(i => i.InternalId);
+            foreach (var versions in groups)
+            {
+                ct.ThrowIfCancellationRequested();
+                var perVersion = new List<QualityInfo>();
+                foreach (var v in versions)
+                {
+                    if (!items.TryGetValue(v.InternalId, out var movie))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        perVersion.Add(MediaInfoClassifier.Classify(movie.GetMediaStreams(ct), movie.Path));
+                    }
+                    catch (Exception ex) when (!ct.IsCancellationRequested)
+                    {
+                        this.logger.ErrorException("Could not read media info for movie {0}", ex, movie.Name);
+                    }
+                }
+
+                var quality = MediaInfoClassifier.Summarize(perVersion, mostCommon: false);
+                var data = new ItemOverlayData { Resolution = quality.Resolution, Hdr = quality.Hdr, Audio = quality.Audio };
+                foreach (var v in versions)
+                {
+                    this.SetMovie(v, data, store, options);
+                }
+
+                count += versions.Count;
+                run.Reread += versions.Count;
+            }
+
+            return count;
+        }
+
+        private void SetMovie(Title movie, ItemOverlayData quality, OverlayStore store, PluginOptions options)
+        {
+            var data = new ItemOverlayData { Resolution = quality?.Resolution, Hdr = quality?.Hdr, Audio = quality?.Audio };
+            ApplyRatings(data, movie, "movie", store, options);
+            store.SetItem(movie.InternalId, data);
         }
 
         /// <summary>
@@ -210,21 +299,61 @@ namespace PosterOverlays.Tasks
         }
 
         private async Task RefreshSeriesAsync(
-            Series show,
+            Title show,
+            List<SeasonRef> seasons,
+            bool reread,
             TmdbClient tmdb,
-            MdbListClient mdb,
             OverlayStore store,
             RunState run,
             PluginOptions options,
             bool mostCommon,
-            HashSet<long> seen,
             CancellationToken ct)
         {
             var status = await this.GetStatusAsync(show, tmdb, store, run, options, ct).ConfigureAwait(false);
             var ratings = new ItemOverlayData();
             ApplyRatings(ratings, show, "show", store, options);
+            ItemOverlayData With(QualityInfo q) => new ItemOverlayData
+            {
+                Status = status,
+                Resolution = q?.Resolution,
+                Hdr = q?.Hdr,
+                Audio = q?.Audio,
+                Imdb = ratings.Imdb,
+                RtCritic = ratings.RtCritic,
+                RtAudience = ratings.RtAudience,
+                Tmdb = ratings.Tmdb,
+            };
+            QualityInfo Cached(long id)
+            {
+                var c = store.GetItem(id);
+                return c == null ? null : new QualityInfo { Resolution = c.Resolution, Hdr = c.Hdr, Audio = c.Audio };
+            }
 
-            var episodes = this.Query("Episode", show);
+            if (!reread)
+            {
+                // Nothing in this show changed since the last run: keep its quality, update status and ratings.
+                if (options.EnableSeries)
+                {
+                    store.SetItem(show.InternalId, With(Cached(show.InternalId)));
+                }
+
+                foreach (var season in seasons)
+                {
+                    store.SetItem(season.InternalId, With(Cached(season.InternalId)));
+                }
+
+                run.Reused++;
+                return;
+            }
+
+            run.Reread++;
+            var parent = this.libraryManager.GetItemById(show.InternalId);
+            if (parent == null)
+            {
+                return;
+            }
+
+            var episodes = this.Query("Episode", parent);
             var perSeason = episodes
                 .GroupBy(e => e.ParentIndexNumber ?? -1)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(e => e.IndexNumber ?? 0).Take(EpisodeSampleLimit).ToList());
@@ -255,44 +384,17 @@ namespace PosterOverlays.Tasks
                     sample = perSeason.Values.SelectMany(v => v).OrderByDescending(e => e.PremiereDate ?? DateTimeOffset.MinValue).Take(EpisodeSampleLimit * 2);
                 }
 
-                var quality = MediaInfoClassifier.Summarize(PerEpisode(sample, QualityOf), mostCommon);
-                store.SetItem(show.InternalId, new ItemOverlayData
-                {
-                    Status = status,
-                    Resolution = quality.Resolution,
-                    Hdr = quality.Hdr,
-                    Audio = quality.Audio,
-                    Imdb = ratings.Imdb,
-                    RtCritic = ratings.RtCritic,
-                    RtAudience = ratings.RtAudience,
-                    Tmdb = ratings.Tmdb,
-                });
-                seen.Add(show.InternalId);
+                store.SetItem(show.InternalId, With(MediaInfoClassifier.Summarize(PerEpisode(sample, QualityOf), mostCommon)));
             }
 
-            if (options.EnableSeasons)
+            foreach (var season in seasons)
             {
-                foreach (var season in this.Query("Season", show).OfType<Season>())
-                {
-                    var eps = season.IndexNumber.HasValue && perSeason.TryGetValue(season.IndexNumber.Value, out var list) ? list : new List<BaseItem>();
-                    var quality = MediaInfoClassifier.Summarize(PerEpisode(eps, QualityOf), mostCommon);
-                    store.SetItem(season.InternalId, new ItemOverlayData
-                    {
-                        Status = status,
-                        Resolution = quality.Resolution,
-                        Hdr = quality.Hdr,
-                        Audio = quality.Audio,
-                        Imdb = ratings.Imdb,
-                        RtCritic = ratings.RtCritic,
-                        RtAudience = ratings.RtAudience,
-                        Tmdb = ratings.Tmdb,
-                    });
-                    seen.Add(season.InternalId);
-                }
+                var eps = season.IndexNumber.HasValue && perSeason.TryGetValue(season.IndexNumber.Value, out var list) ? list : new List<BaseItem>();
+                store.SetItem(season.InternalId, With(MediaInfoClassifier.Summarize(PerEpisode(eps, QualityOf), mostCommon)));
             }
         }
 
-        private async Task<ShowStatus> GetStatusAsync(Series show, TmdbClient tmdb, OverlayStore store, RunState run, PluginOptions options, CancellationToken ct)
+        private async Task<ShowStatus> GetStatusAsync(Title show, TmdbClient tmdb, OverlayStore store, RunState run, PluginOptions options, CancellationToken ct)
         {
             var fallback = StatusClassifier.FromEmby(show.Status);
             if (!tmdb.IsConfigured || run.TmdbStopped)
@@ -346,17 +448,16 @@ namespace PosterOverlays.Tasks
             return age > (settled ? TimeSpan.FromDays(14) : TimeSpan.FromHours(20));
         }
 
-        private async Task<string> ResolveTmdbIdAsync(Series show, TmdbClient tmdb, OverlayStore store, RunState run, CancellationToken ct)
+        private async Task<string> ResolveTmdbIdAsync(Title show, TmdbClient tmdb, OverlayStore store, RunState run, CancellationToken ct)
         {
-            var direct = show.GetProviderId(MetadataProviders.Tmdb);
+            var direct = show.Tmdb;
             if (!string.IsNullOrWhiteSpace(direct))
             {
                 return direct.Trim();
             }
 
-            foreach (var (provider, source) in new[] { (MetadataProviders.Tvdb, "tvdb_id"), (MetadataProviders.Imdb, "imdb_id") })
+            foreach (var (external, source) in new[] { (show.Tvdb, "tvdb_id"), (show.Imdb, "imdb_id") })
             {
-                var external = show.GetProviderId(provider);
                 if (string.IsNullOrWhiteSpace(external))
                 {
                     continue;
@@ -394,16 +495,16 @@ namespace PosterOverlays.Tasks
         }
 
         /// <summary>The MDBList lookup for one title: cache key plus what to ask for.</summary>
-        private static (string Key, string Provider, string Id) RatingsKey(BaseItem item, string mediaType)
+        private static (string Key, string Provider, string Id) RatingsKey(Title item, string mediaType)
         {
-            string provider = null, id = item.GetProviderId(MetadataProviders.Imdb);
+            string provider = null, id = item.Imdb;
             if (!string.IsNullOrWhiteSpace(id))
             {
                 provider = "imdb";
             }
             else
             {
-                id = item.GetProviderId(MetadataProviders.Tmdb);
+                id = item.Tmdb;
                 provider = string.IsNullOrWhiteSpace(id) ? null : "tmdb";
             }
 
@@ -421,8 +522,8 @@ namespace PosterOverlays.Tasks
         /// series mixed), then refreshes of stale ones (oldest fetch first). Anything left over waits for the next run.
         /// </summary>
         private async Task FetchRatingsAsync(
-            IReadOnlyList<BaseItem> movies,
-            IReadOnlyList<Series> series,
+            IReadOnlyList<Title> movies,
+            IReadOnlyList<Title> series,
             MdbListClient mdb,
             OverlayStore store,
             RunState run,
@@ -437,7 +538,7 @@ namespace PosterOverlays.Tasks
 
             var now = DateTime.UtcNow;
             var needed = new Dictionary<string, (string Provider, string MediaType, string Id, string Name, bool Missing, DateTimeOffset Premiere, DateTime Fetched)>();
-            void Consider(BaseItem item, string mediaType)
+            void Consider(Title item, string mediaType)
             {
                 var (key, provider, id) = RatingsKey(item, mediaType);
                 if (key == null || needed.ContainsKey(key))
@@ -475,7 +576,6 @@ namespace PosterOverlays.Tasks
             var pace = BasePace;
             var limitedInARow = 0;
             var failedInARow = 0;
-            var lastSavedIndex = 0;
             var lastReported = 0;
             var lastSaved = DateTime.UtcNow;
             var index = 0;
@@ -564,10 +664,9 @@ namespace PosterOverlays.Tasks
                 }
 
                 progress.Report(40.0 * index / Math.Max(1, limit));
-                if (limitedInARow == 0 && (index - lastSavedIndex >= 100 || DateTime.UtcNow - lastSaved > TimeSpan.FromMinutes(1)))
+                if (limitedInARow == 0 && DateTime.UtcNow - lastSaved > TimeSpan.FromMinutes(2))
                 {
                     store.Save();
-                    lastSavedIndex = index;
                     lastSaved = DateTime.UtcNow;
                 }
 
@@ -613,7 +712,7 @@ namespace PosterOverlays.Tasks
         }
 
         /// <summary>Copy cached ratings onto an item's overlay data (no network).</summary>
-        private static void ApplyRatings(ItemOverlayData data, BaseItem item, string mediaType, OverlayStore store, PluginOptions options)
+        private static void ApplyRatings(ItemOverlayData data, Title item, string mediaType, OverlayStore store, PluginOptions options)
         {
             var (key, _, _) = RatingsKey(item, mediaType);
             if (key != null && store.Data.Ratings.TryGetValue(key, out var entry) && !entry.NotFound)
@@ -624,7 +723,7 @@ namespace PosterOverlays.Tasks
             }
 
             // IMDb's own daily file wins over MDBList's copy when it's the chosen source.
-            var imdbId = item.GetProviderId(MetadataProviders.Imdb)?.Trim();
+            var imdbId = item.Imdb?.Trim();
             if (options.ImdbSource == ImdbRatingSource.ImdbDataset
                 && !string.IsNullOrEmpty(imdbId)
                 && store.Data.ImdbRatings.TryGetValue(imdbId, out var imdb))
@@ -668,12 +767,12 @@ namespace PosterOverlays.Tasks
                 .ToList();
         }
 
-        private async Task RefreshImdbDatasetAsync(IReadOnlyList<BaseItem> movies, IReadOnlyList<Series> series, string dataDirectory, OverlayStore store, CancellationToken ct)
+        private async Task RefreshImdbDatasetAsync(IReadOnlyList<Title> movies, IReadOnlyList<Title> series, string dataDirectory, OverlayStore store, CancellationToken ct)
         {
             var wanted = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var item in movies.Concat<BaseItem>(series))
+            foreach (var item in movies.Concat(series))
             {
-                var id = item.GetProviderId(MetadataProviders.Imdb);
+                var id = item.Imdb;
                 if (!string.IsNullOrWhiteSpace(id))
                 {
                     wanted.Add(id.Trim());
@@ -712,8 +811,155 @@ namespace PosterOverlays.Tasks
             return this.libraryManager.GetItemList(query);
         }
 
+        private long[] Ids(string type, DateTimeOffset? savedSince = null)
+        {
+            var query = new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { type },
+                Recursive = true,
+                IsVirtualItem = false,
+            };
+
+            if (savedSince.HasValue)
+            {
+                query.MinDateLastSaved = savedSince.Value;
+            }
+
+            return this.libraryManager.GetInternalItemIds(query);
+        }
+
+        private BaseItem[] LoadItems(long[] ids)
+        {
+            return ids.Length == 0 ? Array.Empty<BaseItem>() : this.libraryManager.GetItemList(new InternalItemsQuery { ItemIds = ids });
+        }
+
+        /// <summary>Small records for every title, read a page of items at a time.</summary>
+        private List<Title> LoadTitles(long[] ids, CancellationToken ct)
+        {
+            var list = new List<Title>(ids.Length);
+            for (var i = 0; i < ids.Length; i += PageSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                foreach (var item in this.LoadItems(ids.Skip(i).Take(PageSize).ToArray()))
+                {
+                    list.Add(new Title
+                    {
+                        InternalId = item.InternalId,
+                        Name = item.Name,
+                        Imdb = Clean(item.GetProviderId(MetadataProviders.Imdb)),
+                        Tmdb = Clean(item.GetProviderId(MetadataProviders.Tmdb)),
+                        Tvdb = Clean(item.GetProviderId(MetadataProviders.Tvdb)),
+                        PremiereDate = item.PremiereDate,
+                        CommunityRating = item.CommunityRating,
+                        VersionKey = VersionGroupKey(item),
+                        Status = (item as Series)?.Status,
+                    });
+                }
+            }
+
+            return list;
+        }
+
+        private static string Clean(string id) => string.IsNullOrWhiteSpace(id) ? null : id.Trim();
+
+        /// <summary>Every season, by the id of its show.</summary>
+        private Dictionary<long, List<SeasonRef>> LoadSeasons(CancellationToken ct)
+        {
+            var ids = this.Ids("Season");
+            var map = new Dictionary<long, List<SeasonRef>>();
+            for (var i = 0; i < ids.Length; i += PageSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                foreach (var season in this.LoadItems(ids.Skip(i).Take(PageSize).ToArray()).OfType<Season>())
+                {
+                    var show = season.SeriesId;
+                    if (!map.TryGetValue(show, out var list))
+                    {
+                        map[show] = list = new List<SeasonRef>();
+                    }
+
+                    list.Add(new SeasonRef { InternalId = season.InternalId, IndexNumber = season.IndexNumber });
+                }
+            }
+
+            return map;
+        }
+
+        /// <summary>Movies and episodes Emby saved since the given time (new files, new media info).</summary>
+        private HashSet<long> ChangedSince(DateTime sinceUtc)
+        {
+            var since = new DateTimeOffset(DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc));
+            var set = new HashSet<long>(this.Ids("Movie", since));
+            set.UnionWith(this.Ids("Episode", since).Select(id => -id));
+            return set;
+        }
+
+        /// <summary>Shows that have an episode among the changed items (stored as negative ids).</summary>
+        private HashSet<long> ShowsWithChanges(HashSet<long> changed, CancellationToken ct)
+        {
+            var episodeIds = changed.Where(id => id < 0).Select(id => -id).ToArray();
+            var shows = new HashSet<long>();
+            for (var i = 0; i < episodeIds.Length; i += PageSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                foreach (var e in this.LoadItems(episodeIds.Skip(i).Take(PageSize).ToArray()).OfType<Episode>())
+                {
+                    shows.Add(e.SeriesId);
+                }
+            }
+
+            return shows;
+        }
+
+        /// <summary>What the run needs to know about a movie or show, without keeping Emby's item in memory.</summary>
+        private sealed class Title
+        {
+            public long InternalId { get; set; }
+
+            public string Name { get; set; }
+
+            public string Imdb { get; set; }
+
+            public string Tmdb { get; set; }
+
+            public string Tvdb { get; set; }
+
+            public DateTimeOffset? PremiereDate { get; set; }
+
+            public float? CommunityRating { get; set; }
+
+            public string VersionKey { get; set; }
+
+            public SeriesStatus? Status { get; set; }
+        }
+
+        private sealed class SeasonRef
+        {
+            public long InternalId { get; set; }
+
+            public int? IndexNumber { get; set; }
+        }
+
         private sealed class RunState
         {
+            private DateTime lastSave = DateTime.UtcNow;
+
+            public OverlayStore Store { get; set; }
+
+            public int Reread { get; set; }
+
+            public int Reused { get; set; }
+
+            /// <summary>Saves at most every two minutes, so a long run doesn't keep rewriting the whole file.</summary>
+            public void SaveIfDue()
+            {
+                if (DateTime.UtcNow - this.lastSave > TimeSpan.FromMinutes(2))
+                {
+                    this.Store.Save();
+                    this.lastSave = DateTime.UtcNow;
+                }
+            }
+
             public bool NeedMdbList { get; set; }
 
             public int MdbBudget { get; set; }

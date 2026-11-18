@@ -96,6 +96,12 @@ namespace PosterOverlays.Data
 
         public DateTime? ImdbDatasetFetchedUtc { get; set; }
 
+        /// <summary>Start of the last complete refresh; items Emby saved before it keep their cached quality.</summary>
+        public DateTime? QualityCheckedUtc { get; set; }
+
+        /// <summary>Plugin version and quality rule that run used; a change reads everything again.</summary>
+        public string QualityRulesKey { get; set; }
+
         /// <summary>Last MDBList quota reading, shown on the settings page.</summary>
         public PosterOverlays.Services.MdbListQuota MdbListQuota { get; set; }
     }
@@ -130,7 +136,10 @@ namespace PosterOverlays.Data
             {
                 if (File.Exists(path))
                 {
-                    data = JsonSerializer.Deserialize<OverlayStoreData>(File.ReadAllText(path), JsonOptions);
+                    using (var stream = File.OpenRead(path))
+                    {
+                        data = JsonSerializer.Deserialize<OverlayStoreData>(stream, JsonOptions);
+                    }
                 }
             }
             catch (Exception ex)
@@ -158,7 +167,12 @@ namespace PosterOverlays.Data
                 try
                 {
                     var tmp = this.path + ".tmp";
-                    File.WriteAllText(tmp, JsonSerializer.Serialize(this.Data, JsonOptions));
+                    // Written straight to the file: the store is tens of MB, too big to build as one string each save.
+                    using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                    {
+                        JsonSerializer.Serialize(stream, this.Data, JsonOptions);
+                    }
+
                     File.Move(tmp, this.path, true);
                 }
                 catch (Exception ex)

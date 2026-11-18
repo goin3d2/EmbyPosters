@@ -11,7 +11,7 @@ Built and tested against **Emby Server 4.11.0.10** (.NET 8). Original artwork is
 3. Open **Settings > Plugins > Poster Overlays**, then paste in your TMDB key and MDBList key and save. The settings page shows live previews of a movie, series and season poster as you change options. It uses random posters from your library (use **Shuffle** to change them) or neutral placeholders. Previews use your unsaved settings, and nothing changes on the server until you save.
 4. Open **Scheduled Tasks > Poster Overlays** and run both tasks:
    - **Download poster overlay icons**. This also runs once on every startup, but only to fill in missing files.
-   - **Refresh poster overlay data**. After the first run it repeats every 6 hours by default.
+   - **Refresh poster overlay data**. After the first run it repeats once a day by default. Each run only reads media info again for items Emby has changed since the last run, so after the first one it is quick.
 5. Posters update the next time a client asks for them. If a client has old images cached, refresh it.
 
 ## Where the data comes from
